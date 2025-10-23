@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formulaire Immobilier pour la Vente d'un bien - Hervé Vacher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            .no-print { display: none !important; }
+            .bg-yellow-50 { background-color: #fffbeb !important; }
+            .bg-gray-50 { background-color: #f9fafb !important; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script>
+        // Données globales
+        let formData = {};
+        let coVendeurs = [];
+        let expandedSections = {
+            vendeur1: true,
+            bien: false,
+            diagnostics: false,
+            notaire: false,
+            autres: false
+        };
+        let modeIntermediaire = false;
+        let uploadedFiles = {}; // Stockage des fichiers
+
+        // Fonctions utilitaires
+        function updateFormData(name, value) {
+            formData[name] = value;
+        }
+
+        function handleFileUpload(name, file) {
+            if (file) {
+                uploadedFiles[name] = file;
+                formData[name] = file.name;
+            }
+        }
+
+        function getUploadedFiles() {
+            return uploadedFiles;
+        }
+
+        function toggleSection(section) {
+            expandedSections[section] = !expandedSections[section];
+            render();
+        }
+
+        function ajouterCoVendeur() {
+            const newId = Date.now();
+            coVendeurs.push({ id: newId });
+            expandedSections[`covendeur${newId}`] = true;
+            render();
+        }
+
+        function supprimerCoVendeur(id) {
+            coVendeurs = coVendeurs.filter(cv => cv.id !== id);
+            Object.keys(formData).forEach(key => {
+                if (key.includes(`_cv${id}`)) {
+                    delete formData[key];
+                }
+            });
+            render();
+        }
+
+        function sauvegarderFormulaire() {
+            const dataStr = JSON.stringify({ formData, coVendeurs }, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `formulaire_vente_bien_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+            
+            // Sauvegarder aussi les fichiers uploadés
+            if (Object.keys(uploadedFiles).length > 0) {
+                alert('Formulaire sauvegardé ! Note : Les fichiers uploadés sont conservés en mémoire durant cette session.');
+            } else {
+                alert('Formulaire sauvegardé !');
+            }
+        }
+
+        function chargerFormulaire(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        formData = data.formData || {};
+                        coVendeurs = data.coVendeurs || [];
+                        alert('Formulaire chargé !');
+                        render();
+                    } catch (error) {
+                        alert('Erreur lors du chargement');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function genererPDF() {
+            if (!modeIntermediaire) {
+                alert('Fonction réservée à Hervé Vacher');
+                return;
+            }
+            window.print();
+        }
+
+        function exporterVersExcel() {
+            let csvContent = "Champ,Valeur\n";
+            Object.entries(formData).forEach(([key, value]) => {
+                const cleanValue = String(value).replace(/"/g, '""');
+                csvContent += `"${key}","${cleanValue}"\n`;
+            });
+            
+            // Ajouter la liste des fichiers uploadés
+            if (Object.keys(uploadedFiles).length > 0) {
+                csvContent += "\n--- Fichiers uploadés ---\n";
+                Object.entries(uploadedFiles).forEach(([key, file]) => {
+                    csvContent += `"${key}","${file.name}"\n`;
+                });
+            }
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `donnees_vente_bien_${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+            alert('Données exportées en CSV ! Les fichiers uploadés sont listés dans le CSV.');
+        }
+
+        function handleSubmit() {
+            exporterVersExcel();
+            alert('Formulaire envoyé !');
+        }
+
+        function toggleModeIntermediaire() {
+            modeIntermediaire = !modeIntermediaire;
+            render();
+        }
+
+        // Composants HTML
+        function createInputField(label, name, type = "text", required = false, options = null, placeholder = "", vendeurField = false) {
+            const bgColor = vendeurField ? "bg-yellow-50" : "bg-gray-50";
+            const value = formData[name] || '';
+            
+            let html = `
+                <div class="flex flex-col">
+                    <label class="text-sm font-medium text-gray-700 mb-1">
+                        ${label} ${required ? '<span class="text-red-500">*</span>' : ''}
+                    </label>`;
+            
+            if (options) {
+                html += `<select class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 ${bgColor}" 
+                         onchange="updateFormData('${name}', this.value); render();">
+                    <option value="">Sélectionner...</option>`;
+                options.forEach(opt => {
+                    html += `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`;
+                });
+                html += `</select>`;
+            } else if (type === "textarea") {
+                html += `<textarea class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 ${bgColor}" 
+                         rows="3" placeholder="${placeholder}"
+                         oninput="updateFormData('${name}', this.value)">${value}</textarea>`;
+            } else if (type === "file") {
+                html += `<input type="file" class="border border-gray-300 rounded-lg px-3 py-2 w-full ${bgColor}"
+                         onchange="handleFileUpload('${name}', this.files[0]); render();">`;
+                if (value) {
+                    html += `<p class="text-xs text-green-600 mt-1">✓ ${value}</p>`;
+                }
+            } else {
+                html += `<input type="${type}" class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 ${bgColor}" 
+                         value="${value}" placeholder="${placeholder}"
+                         oninput="updateFormData('${name}', this.value)">`;
+            }
+            
+            html += `</div>`;
+            return html;
+        }
+
+        const paysList = ['France', 'Allemagne', 'Belgique', 'Espagne', 'Italie', 'Portugal', 'Suisse', 'Luxembourg', 'Royaume-Uni', 'Pays-Bas', 'Pologne', 'Roumanie', 'Grèce', 'Autre'];
+
+        function createVendeurSection(suffix = "", removable = false) {
+            let html = `<div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">`;
+            
+            if (removable) {
+                html += `<div class="col-span-2 flex justify-end">
+                    <button type="button" onclick="supprimerCoVendeur(${suffix.replace('_cv', '')})" 
+                            class="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
+                        🗑️ Supprimer
+                    </button>
+                </div>`;
+            }
+            
+            html += createInputField("Genre", `genre${suffix}`, "text", true, ['M.', 'Mme', 'Autre'], "", true);
+            html += createInputField("Nom", `nom${suffix}`, "text", true, null, "", true);
+            html += createInputField("Prénom(s)", `prenom${suffix}`, "text", true, null, "", true);
+            html += createInputField("Type pièce d'identité", `type_piece${suffix}`, "text", true, ['CNI', 'Passeport', 'Permis'], "", true);
+            html += createInputField("N° pièce d'identité", `piece_id${suffix}`, "text", true, null, "", true);
+            
+            // Upload pièce identité avec label clair
+            html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre la pièce d'identité (CNI, Passeport ou Permis)</label>
+                <input type="file" accept="image/*,.pdf" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-yellow-50"
+                       onchange="handleFileUpload('upload_piece${suffix}', this.files[0]); render();">
+                ${formData[`upload_piece${suffix}`] ? `<p class="text-xs text-green-600 mt-1">✓ Fichier joint : ${formData[`upload_piece${suffix}`]}</p>` : ''}
+            </div>`;
+            
+            html += createInputField("Date Naissance", `date_naiss${suffix}`, "date", true, null, "", true);
+            html += createInputField("Lieu Naissance", `lieu_naiss${suffix}`, "text", true, null, "", true);
+            html += createInputField("Nationalité", `nation${suffix}`, "text", true, ['France', 'Autre'], "", true);
+            
+            if (formData[`nation${suffix}`] === 'Autre') {
+                html += createInputField("Pays", `nation_pays${suffix}`, "text", true, paysList, "", true);
+            }
+            
+            html += createInputField("Adresse domicile", `adr_dom${suffix}`, "text", true, null, "", true);
+            html += createInputField("Email", `email${suffix}`, "email", true, null, "", true);
+            html += createInputField("Téléphone", `tel${suffix}`, "tel", true, null, "", true);
+            html += createInputField("Profession", `prof${suffix}`, "text", false, null, "", true);
+            html += createInputField("Capacité Juridique", `capa${suffix}`, "text", true, ['Oui', 'Non'], "", true);
+            html += createInputField("Situation familiale", `situ${suffix}`, "text", true, ['Célibataire', 'Marié(e)', 'Pacsé(e)', 'Divorcé(e)', 'Veuf(ve)', 'Union libre'], "", true);
+            
+            if (formData[`situ${suffix}`] === 'Marié(e)') {
+                html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                    <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre un extrait du livret de famille</label>
+                    <input type="file" accept="image/*,.pdf" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-yellow-50"
+                           onchange="handleFileUpload('doc_mar${suffix}', this.files[0]); render();">
+                    ${formData[`doc_mar${suffix}`] ? `<p class="text-xs text-green-600 mt-1">✓ Fichier joint : ${formData[`doc_mar${suffix}`]}</p>` : ''}
+                </div>`;
+                
+                html += createInputField("Régime matrimonial", `reg${suffix}`, "text", false, ['Communauté acquêts', 'Communauté universelle', 'Séparation biens', 'Participation acquêts', 'Particulier'], "", true);
+                
+                if (formData[`reg${suffix}`]) {
+                    html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                        ${createInputField("Lieu enregistrement (ex: Mairie de Paris, Notaire Dupont)", `lieu_acte${suffix}`, "text", false, null, "Mairie de... ou Notaire...", true)}
+                    </div>`;
+                }
+            }
+            
+            if (formData[`situ${suffix}`] === 'Pacsé(e)') {
+                html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                    <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre la convention de PACS signée</label>
+                    <input type="file" accept="image/*,.pdf" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-yellow-50"
+                           onchange="handleFileUpload('doc_pacs${suffix}', this.files[0]); render();">
+                    ${formData[`doc_pacs${suffix}`] ? `<p class="text-xs text-green-600 mt-1">✓ Fichier joint : ${formData[`doc_pacs${suffix}`]}</p>` : ''}
+                </div>`;
+                
+                html += createInputField("Régime matrimonial", `reg${suffix}`, "text", false, ['Communauté acquêts', 'Communauté universelle', 'Séparation biens', 'Participation acquêts', 'Particulier'], "", true);
+                
+                if (formData[`reg${suffix}`]) {
+                    html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                        ${createInputField("Lieu enregistrement (ex: Mairie de Paris, Notaire Dupont)", `lieu_acte${suffix}`, "text", false, null, "Mairie de... ou Notaire...", true)}
+                    </div>`;
+                }
+            }
+            
+            if (formData[`situ${suffix}`] === 'Divorcé(e)') {
+                html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                    <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre le jugement de divorce ou attestation d'enregistrement</label>
+                    <input type="file" accept="image/*,.pdf" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-yellow-50"
+                           onchange="handleFileUpload('doc_div${suffix}', this.files[0]); render();">
+                    ${formData[`doc_div${suffix}`] ? `<p class="text-xs text-green-600 mt-1">✓ Fichier joint : ${formData[`doc_div${suffix}`]}</p>` : ''}
+                </div>`;
+                
+                html += createInputField("Régime matrimonial", `reg${suffix}`, "text", false, ['Communauté acquêts', 'Communauté universelle', 'Séparation biens', 'Participation acquêts', 'Particulier'], "", true);
+                
+                if (formData[`reg${suffix}`]) {
+                    html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                        ${createInputField("Lieu enregistrement (ex: Mairie de Paris, Notaire Dupont)", `lieu_acte${suffix}`, "text", false, null, "Mairie de... ou Notaire...", true)}
+                    </div>`;
+                }
+            }
+            
+            // Pour les autres situations familiales qui ont un régime matrimonial
+            if (!['Marié(e)', 'Pacsé(e)', 'Divorcé(e)'].includes(formData[`situ${suffix}`]) && formData[`situ${suffix}`]) {
+                html += createInputField("Régime matrimonial", `reg${suffix}`, "text", false, ['Communauté acquêts', 'Communauté universelle', 'Séparation biens', 'Participation acquêts', 'Particulier'], "", true);
+                
+                if (formData[`reg${suffix}`]) {
+                    html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg space-y-3">
+                        <div>
+                            <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre extrait livret de famille OU contrat de mariage</label>
+                            <input type="file" accept="image/*,.pdf" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-yellow-50"
+                                   onchange="handleFileUpload('doc_reg${suffix}', this.files[0]); render();">
+                            ${formData[`doc_reg${suffix}`] ? `<p class="text-xs text-green-600 mt-1">✓ Fichier joint : ${formData[`doc_reg${suffix}`]}</p>` : ''}
+                        </div>
+                        ${createInputField("Lieu enregistrement (ex: Mairie de Paris, Notaire Dupont)", `lieu_acte${suffix}`, "text", false, null, "Mairie de... ou Notaire...", true)}
+                    </div>`;
+                }
+            }
+            
+            html += createInputField("Date situation familiale", `date_situ${suffix}`, "date", false, null, "", true);
+            html += createInputField("Résident Fiscal", `fiscal${suffix}`, "text", false, ['France', 'Autre'], "", true);
+            
+            html += `<div class="col-span-2"><h5 class="font-semibold text-gray-700 mb-2">Situation particulière (à remplir par les vendeurs)</h5></div>`;
+            html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg space-y-2">`;
+            html += `<div class="grid grid-cols-2 gap-3">`;
+            html += createInputField("Redressement judiciaire", `redress_jud${suffix}`, "text", false, ['Non', 'Oui'], "", true);
+            html += createInputField("Surendettement", `surendett${suffix}`, "text", false, ['Non', 'Oui'], "", true);
+            html += `</div></div>`;
+            
+            html += `<div class="col-span-2"><h5 class="font-semibold text-gray-700 mb-2">Vérification Hervé Vacher</h5></div>`;
+            html += createInputField("Gel des avoirs", `gel_avoirs${suffix}`, "text", false, ['Non', 'Oui']);
+            html += createInputField("S'agit-il du logement de famille ?", `logement_famille${suffix}`, "text", false, ['Non', 'Oui']);
+            
+            html += `<div class="col-span-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre justificatif de domicile (moins de 3 mois)</label>
+                <input type="file" accept="image/*,.pdf" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-yellow-50"
+                       onchange="handleFileUpload('justif_domicile${suffix}', this.files[0]); render();">
+                ${formData[`justif_domicile${suffix}`] ? `<p class="text-xs text-green-600 mt-1">✓ ${formData[`justif_domicile${suffix}`]}</p>` : ''}
+            </div>`;
+            
+            html += `</div>`;
+            return html;
+        }
+
+        function render() {
+            const root = document.getElementById('root');
+            
+            let html = `
+            <div class="min-h-screen bg-gray-50 p-6">
+                <div class="max-w-5xl mx-auto">
+                    <div class="bg-white rounded-xl shadow-lg p-8 mb-6">
+                        <h1 class="text-3xl font-bold mb-4">Formulaire Immobilier pour la Vente d'un bien</h1>
+                        
+                        <!-- MODE D'EMPLOI SIMPLE POUR LE CLIENT -->
+                        <div class="bg-blue-50 border-2 border-blue-400 rounded-lg p-5 mb-4">
+                            <h2 class="text-lg font-bold text-blue-900 mb-3 flex items-center gap-2">
+                                <span class="text-2xl">📖</span> MODE D'EMPLOI - Comment remplir ce formulaire
+                            </h2>
+                            
+                            <div class="space-y-3 text-sm text-blue-900">
+                                <div class="bg-white p-3 rounded-md">
+                                    <p class="font-semibold mb-1">1️⃣ OUVRIR LES SECTIONS</p>
+                                    <p class="text-xs">Cliquez sur chaque section (VENDEUR, BIEN, NOTAIRE, etc.) pour l'ouvrir ou la refermer. Les sections se déplient et se replient en cliquant sur leur titre.</p>
+                                </div>
+                                
+                                <div class="bg-white p-3 rounded-md">
+                                    <p class="font-semibold mb-1">2️⃣ REMPLIR LES CHAMPS JAUNES UNIQUEMENT</p>
+                                    <p class="text-xs">Ne remplissez QUE les champs surlignés en <strong class="bg-yellow-200 px-1">JAUNE</strong>. Les champs gris seront complétés par Hervé Vacher.</p>
+                                    <p class="text-xs mt-1 font-semibold">⚠️ Champs jaunes obligatoires : coordonnées vendeur, adresse du bien, date de libération, infos notaire, prix de vente</p>
+                                </div>
+                                
+                                <div class="bg-white p-3 rounded-md">
+                                    <p class="font-semibold mb-1">3️⃣ ENREGISTRER VOTRE TRAVAIL</p>
+                                    <p class="text-xs">Cliquez sur le bouton vert <strong>"💾 Enregistrer"</strong> ci-dessous. Un fichier JSON sera téléchargé sur votre ordinateur. <strong>Conservez ce fichier précieusement !</strong></p>
+                                </div>
+                                
+                                <div class="bg-white p-3 rounded-md">
+                                    <p class="font-semibold mb-1">4️⃣ REPRENDRE VOTRE SAISIE PLUS TARD</p>
+                                    <p class="text-xs">Pour reprendre là où vous vous êtes arrêté, cliquez sur <strong>"📂 Charger"</strong> et sélectionnez le fichier JSON que vous aviez enregistré. Toutes vos données réapparaîtront !</p>
+                                </div>
+                                
+                                <div class="bg-white p-3 rounded-md">
+                                    <p class="font-semibold mb-1">5️⃣ ENVOYER LE DOSSIER À HERVÉ VACHER</p>
+                                    <p class="text-xs">Une fois tous les champs jaunes remplis, cliquez sur <strong>"📤 Envoyer et Exporter CSV"</strong> en bas du formulaire. Un fichier CSV sera téléchargé. <strong>Envoyez ce fichier CSV + le fichier JSON par email</strong> à Hervé Vacher.</p>
+                                </div>
+                                
+                                <div class="bg-yellow-100 p-3 rounded-md border border-yellow-400">
+                                    <p class="font-semibold mb-1">❓ BESOIN D'AIDE ?</p>
+                                    <p class="text-xs">N'hésitez pas à contacter <strong>Hervé Vacher</strong> qui vous guidera dans le remplissage du formulaire.</p>
+                                </div>
+                                
+                                <div class="bg-gray-100 p-3 rounded-md border border-gray-300">
+                                    <p class="font-semibold mb-1">🔒 BOUTON "ACTIVER MODE HERVÉ"</p>
+                                    <p class="text-xs"><strong>Ce bouton n'est PAS pour vous !</strong> Il est réservé à Hervé Vacher pour accéder à des fonctions supplémentaires (génération PDF). Vous n'avez pas besoin de l'utiliser.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 mb-4">
+                            <h2 class="text-lg font-semibold mb-2">📋 Instructions vendeurs</h2>
+                            <p class="text-sm"><strong>Remplissez uniquement les champs sur FOND JAUNE</strong></p>
+                            <p class="text-xs text-gray-600 mt-1">Les champs gris seront complétés par Hervé Vacher</p>
+                        </div>
+                        
+                        <!-- MESSAGE IMPORTANT CHAMPS OBLIGATOIRES -->
+                        <div class="bg-red-50 border-l-4 border-red-500 p-5 rounded-lg shadow-md mb-4 no-print">
+                            <div class="flex items-start gap-3">
+                                <span class="text-2xl">⚠️</span>
+                                <div class="flex-1">
+                                    <h3 class="text-lg font-bold text-red-900 mb-2">ATTENTION - Vérification avant envoi</h3>
+                                    <p class="text-red-800 mb-3 text-sm">
+                                        Avant d'envoyer votre dossier, <strong>vérifiez que tous les champs JAUNES sont remplis</strong>, notamment :
+                                    </p>
+                                    <div class="bg-white p-3 rounded-md mb-3 border border-red-200">
+                                        <ul class="text-xs text-red-800 space-y-1 ml-4 list-disc">
+                                            <li>Vos coordonnées complètes (nom, prénom, adresse, email, téléphone, pièce d'identité, etc.)</li>
+                                            <li>La déclaration d'assurance sinistre (moins de 10 ans)</li>
+                                            <li>Les coordonnées de votre notaire et le prix de vente</li>
+                                            <li>Les infos vendeurs dans la section AUTRES</li>
+                                        </ul>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-sm">
+                                        <span class="text-blue-600 font-bold text-lg">💡</span>
+                                        <p class="text-red-900">Si des champs jaunes restent vides, complétez-les ou contactez Hervé Vacher pour assistance</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2 mb-4 no-print">
+                            <label class="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg cursor-pointer hover:bg-blue-600 text-sm">
+                                <input type="file" accept=".json" onchange="chargerFormulaire(event)" class="hidden" />
+                                📂 Charger
+                            </label>
+                            
+                            <button onclick="sauvegarderFormulaire()" 
+                                    class="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+                                💾 Enregistrer
+                            </button>
+                            
+                            <button onclick="toggleModeIntermediaire()" 
+                                    class="px-3 py-2 rounded-lg text-sm font-medium transition-colors ${modeIntermediaire ? 'bg-orange-500 text-white' : 'bg-gray-300 text-gray-700 hover:bg-gray-400'}">
+                                ${modeIntermediaire ? '🔓 Mode Hervé actif' : '🔒 Activer mode Hervé'}
+                            </button>
+                            
+                            ${modeIntermediaire ? `<button onclick="genererPDF()" 
+                                class="flex items-center gap-2 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm">
+                                📄 PDF
+                            </button>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <div class="bg-white rounded-xl shadow-lg">
+                            <div class="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg cursor-pointer hover:from-blue-700 hover:to-blue-800 transition-all"
+                                 onclick="toggleSection('vendeur1')">
+                                <div class="flex items-center gap-3">
+                                    <span>👤</span>
+                                    <h2 class="text-xl font-semibold">Vendeur Principal</h2>
+                                </div>
+                                <span>${expandedSections.vendeur1 ? '▲' : '▼'}</span>
+                            </div>
+                            ${expandedSections.vendeur1 ? createVendeurSection('1') : ''}
+                        </div>`;
+
+            // Co-vendeurs
+            coVendeurs.forEach((cv, i) => {
+                html += `
+                    <div class="bg-white rounded-xl shadow-lg">
+                        <div class="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg cursor-pointer hover:from-blue-700 hover:to-blue-800 transition-all"
+                             onclick="toggleSection('covendeur${cv.id}')">
+                            <div class="flex items-center gap-3">
+                                <span>👤</span>
+                                <h2 class="text-xl font-semibold">Co-vendeur ${i + 1}</h2>
+                            </div>
+                            <span>${expandedSections[`covendeur${cv.id}`] ? '▲' : '▼'}</span>
+                        </div>
+                        ${expandedSections[`covendeur${cv.id}`] ? createVendeurSection(`_cv${cv.id}`, true) : ''}
+                    </div>`;
+            });
+
+            html += `
+                        <button onclick="ajouterCoVendeur()" class="w-full flex items-center justify-center gap-2 px-6 py-4 bg-green-500 text-white rounded-xl hover:bg-green-600 no-print">
+                            <span>+</span> Ajouter co-vendeur
+                        </button>
+
+                        <!-- BIEN -->
+                        <div class="bg-white rounded-xl shadow-lg">
+                            <div class="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg cursor-pointer"
+                                 onclick="toggleSection('bien')">
+                                <div class="flex items-center gap-3">
+                                    <span>🏠</span>
+                                    <h2 class="text-xl font-semibold">Informations sur le Bien</h2>
+                                </div>
+                                <span>${expandedSections.bien ? '▲' : '▼'}</span>
+                            </div>
+                            ${expandedSections.bien ? `
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-3 gap-4">
+                                    ${createInputField("Type de bien", "type_bien", "text", true, ['Maison', 'Appartement', 'Terrain'])}
+                                    ${createInputField("Parcelle cadastrale", "parcelle", "text", true)}
+                                    ${createInputField("Zone PLU", "zone_plu")}
+                                    ${(formData.type_bien === 'Maison' || formData.type_bien === 'Appartement') ? createInputField("Superficie habitable (m²)", "surface_hab", "number", false, null, "m²") : ''}
+                                    ${createInputField("Superficie parcelle (m²)", "surface_parcelle", "number", false, null, "m²")}
+                                    ${(formData.type_bien === 'Maison' || formData.type_bien === 'Appartement') ? createInputField("Nombre de pièces", "nb_pieces", "number", false, null, "") : ''}
+                                    ${(formData.type_bien === 'Maison' || formData.type_bien === 'Appartement') ? createInputField("Nombre de chambres", "nb_chambres", "number", false, null, "") : ''}
+                                    ${createInputField("Année de construction", "annee_construction", "number", false, null, "AAAA")}
+                                    <div class="col-span-3">
+                                        ${createInputField("Désignation complète", "designation", "textarea", true)}
+                                    </div>
+                                    <div class="col-span-3">
+                                        ${createInputField("Adresse complète du bien", "adresse", "text", true)}
+                                    </div>
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    ${createInputField("Copropriété", "copro", "text", true, ['Oui', 'Non'])}
+                                    
+                                    ${formData.copro === 'Oui' ? `
+                                    <div class="col-span-2 p-4 bg-gray-50 border rounded-lg space-y-3">
+                                        ${createInputField("Type gestion", "syndic", "text", false, ['Syndic bénévole', 'Syndic professionnel', 'ASL'])}
+                                        ${formData.syndic === 'ASL' ? `
+                                        <div class="grid grid-cols-2 gap-3">
+                                            ${createInputField("Nom Président", "pres_nom", "text", false)}
+                                            ${createInputField("Prénom", "pres_prenom", "text", false)}
+                                            ${createInputField("Email", "pres_email", "email", false)}
+                                            ${createInputField("Tél", "pres_tel", "tel", false)}
+                                        </div>
+                                        ` : ''}
+                                    </div>
+                                    ` : ''}
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    ${createInputField("Servitudes", "serv", "text", false, ['Oui', 'Non'])}
+                                    ${formData.serv === 'Oui' ? `<div class="col-span-2">${createInputField("Précisions servitudes", "serv_detail", "textarea")}</div>` : ''}
+                                    
+                                    ${createInputField("Terrain borné", "terrain_borne", "text", false, ['Oui', 'Non'])}
+                                    ${createInputField("Terrain clos", "terrain_clos", "text", false, ['Oui', 'Non', 'Partiellement'])}
+                                    ${(formData.terrain_clos === 'Oui' || formData.terrain_clos === 'Partiellement') ? `
+                                        <div class="col-span-2 p-3 bg-gray-50 border border-gray-300 rounded-lg">
+                                            ${createInputField("Précisions clôture", "cloture_detail", "textarea", false, null, "Ex: Haies, grillage, mur d'enceinte...")}
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${createInputField("Libre de toute occupation", "libre", "text", true, ['Oui', 'Non'])}
+                                    ${createInputField("Bien loué", "loue", "text", false, ['Oui', 'Non'])}
+                                    ${createInputField("Taxe Foncière €", "taxe", "number")}
+                                    <div class="col-span-2 p-3 bg-gray-50 border rounded-lg">
+                                        <label class="text-sm font-semibold mb-2 block">📎 Joindre avis Taxe Foncière</label>
+                                        <input type="file" accept=".pdf,image/*" class="border border-gray-300 rounded-lg px-3 py-2 w-full"
+                                               onchange="handleFileUpload('doc_taxe', this.files[0]); render();">
+                                        ${formData.doc_taxe ? `<p class="text-xs text-green-600 mt-1">✓ ${formData.doc_taxe}</p>` : ''}
+                                    </div>
+                                    ${createInputField("Assainissement", "assain", "text", false, ['Collectif', 'Individuel', 'Autonome'])}
+                                </div>
+                                
+                                <div>
+                                    <h4 class="font-semibold mb-2">Mode de visite</h4>
+                                    <div class="p-3 bg-gray-50 border border-gray-300 rounded-lg space-y-2">
+                                        ${createInputField("Clé remise à l'agent", "cle_agent", "text", false, ['Non', 'Oui'])}
+                                        ${formData.cle_agent === 'Oui' ? `<div class="mt-2">${createInputField("N° porte-clés", "numero_cle", "text", false)}</div>` : ''}
+                                    </div>
+                                </div>
+                                
+                                <div class="p-4 bg-blue-50 border rounded-lg">
+                                    <h4 class="font-semibold mb-3">Équipements du bien</h4>
+                                    <div class="space-y-2">
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.alarme ? 'checked' : ''} onchange="updateFormData('alarme', this.checked)" class="w-4 h-4" />
+                                            Alarme
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.detect ? 'checked' : ''} onchange="updateFormData('detect', this.checked)" class="w-4 h-4" />
+                                            Détecteur fumée
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.puits ? 'checked' : ''} onchange="updateFormData('puits', this.checked)" class="w-4 h-4" />
+                                            Puits/forage
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.sani ? 'checked' : ''} onchange="updateFormData('sani', this.checked)" class="w-4 h-4" />
+                                            Sanibroyeur
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.pac ? 'checked' : ''} onchange="updateFormData('pac', this.checked)" class="w-4 h-4" />
+                                            PAC A/A réversible/Climatisation
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.piscine ? 'checked' : ''} onchange="updateFormData('piscine', this.checked)" class="w-4 h-4" />
+                                            Piscine creusée
+                                        </label>
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.pv ? 'checked' : ''} onchange="updateFormData('pv', this.checked)" class="w-4 h-4" />
+                                            Panneaux photovoltaïques
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="space-y-3 p-4 bg-gray-50 rounded-lg">
+                                    <h4 class="font-semibold">Documents et garanties</h4>
+                                    <div>
+                                        <label class="flex items-center gap-2 text-sm mb-2">
+                                            <input type="checkbox" ${formData.chaud ? 'checked' : ''} onchange="updateFormData('chaud', this.checked); render();" class="w-4 h-4" />
+                                            Facture chaudière moins 1 an
+                                        </label>
+                                        ${formData.chaud ? createInputField("", "doc_chaud", "file") : ''}
+                                    </div>
+                                    <div>
+                                        <label class="flex items-center gap-2 text-sm mb-2">
+                                            <input type="checkbox" ${formData.ramo ? 'checked' : ''} onchange="updateFormData('ramo', this.checked); render();" class="w-4 h-4" />
+                                            Facture ramonage moins 1 an
+                                        </label>
+                                        ${formData.ramo ? createInputField("", "doc_ramo", "file") : ''}
+                                    </div>
+                                    <label class="flex items-center gap-2 text-sm">
+                                        <input type="checkbox" ${formData.garantie ? 'checked' : ''} onchange="updateFormData('garantie', this.checked)" class="w-4 h-4" />
+                                        Garantie décennale
+                                    </label>
+                                    <div>
+                                        <label class="flex items-center gap-2 text-sm mb-2">
+                                            <input type="checkbox" ${formData.plans ? 'checked' : ''} onchange="updateFormData('plans', this.checked); render();" class="w-4 h-4" />
+                                            Plans disponibles
+                                        </label>
+                                        ${formData.plans ? createInputField("", "doc_plans", "file") : ''}
+                                    </div>
+                                </div>
+                                
+                                <div class="p-4 bg-yellow-50 border rounded-lg">
+                                    ${createInputField("Déclaration assurance sinistre moins 10 ans", "sinis", "text", false, ['Non', 'Oui'], "", true)}
+                                    ${formData.sinis === 'Oui' ? `<div class="mt-3">${createInputField("Précision", "sinis_detail", "textarea", false, null, "", true)}</div>` : ''}
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    ${createInputField("Inventaire mobilier", "invent", "textarea")}
+                                    ${createInputField("Date libération au plus tôt", "liberation", "date")}
+                                    ${createInputField("Date signature au plus tard", "signature", "date")}
+                                    ${createInputField("Mode visite", "visite", "text", false, ['Sur RDV', 'Libre', 'Clé agence'])}
+                                    <div class="col-span-2">
+                                        ${createInputField("Factures diverses", "factures", "textarea")}
+                                    </div>
+                                    ${createInputField("Contrat affichage", "affichage", "text", false, ['Oui', 'Non'])}
+                                </div>
+                                
+                                <div>
+                                    <h3 class="font-semibold mb-3">Urbanisme</h3>
+                                    <div class="p-3 mb-3 bg-gray-50 border rounded-lg">
+                                        <h4 class="font-medium mb-2">Maison</h4>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            ${createInputField("Permis de construire", "urb_Maison_pc", "file")}
+                                            ${createInputField("Arrêté non opposition", "urb_Maison_arr", "file")}
+                                            ${createInputField("DACCT", "urb_Maison_dac", "file")}
+                                            ${createInputField("Conformité", "urb_Maison_nc", "file")}
+                                        </div>
+                                    </div>
+                                    ${['Extension', 'Abri', 'Piscine', 'Aménagement garage'].map(type => `
+                                        <div class="p-3 mb-3 bg-gray-50 border rounded-lg">
+                                            <h4 class="font-medium mb-2">${type}</h4>
+                                            <div class="mb-3">
+                                                ${createInputField("Concerné", `urb_${type}_concerne`, "text", false, ['Oui', 'Non concerné'])}
+                                            </div>
+                                            ${formData[`urb_${type}_concerne`] === 'Oui' ? `
+                                            <div class="grid grid-cols-2 gap-2">
+                                                ${createInputField("DP Travaux", `urb_${type}_dp`, "file")}
+                                                ${createInputField("Arrêté", `urb_${type}_arr`, "file")}
+                                                ${createInputField("DACCT", `urb_${type}_dac`, "file")}
+                                                ${createInputField("Conformité", `urb_${type}_nc`, "file")}
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- DIAGNOSTICS -->
+                        <div class="bg-white rounded-xl shadow-lg">
+                            <div class="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg cursor-pointer"
+                                 onclick="toggleSection('diagnostics')">
+                                <div class="flex items-center gap-3">
+                                    <span>📋</span>
+                                    <h2 class="text-xl font-semibold">Diagnostics</h2>
+                                </div>
+                                <span>${expandedSections.diagnostics ? '▲' : '▼'}</span>
+                            </div>
+                            ${expandedSections.diagnostics ? `
+                            <div class="p-6 space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    ${createInputField("DPE réalisé le", "dpe_date", "date")}
+                                    ${createInputField("Note DPE", "note_dpe", "text", false, ['A', 'B', 'C', 'D', 'E', 'F', 'G'])}
+                                    <div class="col-span-2 p-3 bg-gray-50 border rounded-lg">
+                                        <label class="text-sm font-semibold text-gray-700 mb-2 block">📎 Joindre le DPE complet (document officiel)</label>
+                                        <input type="file" accept=".pdf,image/*" class="border border-gray-300 rounded-lg px-3 py-2 w-full bg-gray-50"
+                                               onchange="handleFileUpload('upload_dpe', this.files[0]); render();">
+                                        ${formData.upload_dpe ? `<p class="text-xs text-green-600 mt-1">✓ Fichier joint : ${formData.upload_dpe}</p>` : ''}
+                                    </div>
+                                    ${createInputField("Conso Primaire", "conso_prim", "number", false, null, "kWh/m²/an")}
+                                    ${createInputField("Note Prim", "note_prim", "text", false, ['A', 'B', 'C', 'D', 'E', 'F', 'G'])}
+                                    ${createInputField("Conso Finale", "conso_fin", "number", false, null, "kWh/m²/an")}
+                                    ${createInputField("Note Fin", "note_fin", "text", false, ['A', 'B', 'C', 'D', 'E', 'F', 'G'])}
+                                    ${createInputField("GES", "ges", "number", false, null, "kg CO2/m²/an")}
+                                    ${createInputField("Note GES", "note_ges", "text", false, ['A', 'B', 'C', 'D', 'E', 'F', 'G'])}
+                                    ${createInputField("Année réf", "annee_ref", "number", false, null, "2024")}
+                                    ${createInputField("Dépenses €/an", "depenses", "number")}
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    ${['Amiante', 'Plomb', 'Gaz', 'Électricité'].map(diag => `
+                                        <div class="p-3 bg-gray-50 border rounded-lg">
+                                            <h5 class="font-medium mb-2">Diagnostic ${diag}</h5>
+                                            ${createInputField("Statut", `diag_${diag}`, "text", false, ['Réalisé', 'Non réalisé', 'Non concerné'])}
+                                            ${formData[`diag_${diag}`] === 'Réalisé' ? `
+                                            <div class="mt-3 space-y-2">
+                                                ${createInputField("État constaté", `etat_${diag}`, "text", false, ['Conforme', 'Non-conformités mineures', 'Non-conformités majeures', 'Non conforme'])}
+                                                <div class="mt-2">
+                                                    <label class="text-xs font-semibold text-gray-700 mb-1 block">📎 Joindre le diagnostic ${diag}</label>
+                                                    <input type="file" accept=".pdf,image/*" class="border border-gray-300 rounded-lg px-2 py-1 w-full text-sm bg-gray-50"
+                                                           onchange="handleFileUpload('doc_${diag}', this.files[0]); render();">
+                                                    ${formData[`doc_${diag}`] ? `<p class="text-xs text-green-600 mt-1">✓ ${formData[`doc_${diag}`]}</p>` : ''}
+                                                </div>
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                    
+                                    <div class="p-3 bg-gray-50 border rounded-lg">
+                                        <h5 class="font-medium mb-2">Diagnostic Assainissement</h5>
+                                        ${createInputField("Statut", "diag_assain", "text", false, ['Réalisé', 'Non réalisé', 'Non concerné'])}
+                                        ${formData.diag_assain === 'Réalisé' ? `
+                                        <div class="mt-3 space-y-2">
+                                            ${createInputField("État constaté", "etat_assain", "text", false, ['Conforme', 'Non conforme'])}
+                                            <div class="mt-2">
+                                                <label class="text-xs font-semibold text-gray-700 mb-1 block">📎 Joindre le diagnostic Assainissement</label>
+                                                <input type="file" accept=".pdf,image/*" class="border border-gray-300 rounded-lg px-2 py-1 w-full text-sm bg-gray-50"
+                                                       onchange="handleFileUpload('doc_assain', this.files[0]); render();">
+                                                ${formData.doc_assain ? `<p class="text-xs text-green-600 mt-1">✓ ${formData.doc_assain}</p>` : ''}
+                                            </div>
+                                        </div>
+                                        ` : ''}
+                                    </div>
+                                    
+                                    <div class="col-span-2">
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.ernmt ? 'checked' : ''} onchange="updateFormData('ernmt', this.checked); render();" class="w-4 h-4" />
+                                            ERNMT
+                                        </label>
+                                        ${formData.ernmt ? `<div class="mt-2">${createInputField("Date diagnostic", "ernmt_date", "date")}</div>` : ''}
+                                    </div>
+                                    
+                                    <div class="col-span-2">
+                                        <label class="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" ${formData.surfaces ? 'checked' : ''} onchange="updateFormData('surfaces', this.checked); render();" class="w-4 h-4" />
+                                            Relevé Surfaces
+                                        </label>
+                                        ${formData.surfaces ? `<div class="mt-2">${createInputField("Surface m²", "surfaces_m2", "number", false, null, "m²")}</div>` : ''}
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-4">
+                                    ${createInputField("Commentaires Hervé", "commentaires_herve", "textarea", false, null, "Observations...")}
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- NOTAIRE -->
+                        <div class="bg-white rounded-xl shadow-lg">
+                            <div class="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg cursor-pointer"
+                                 onclick="toggleSection('notaire')">
+                                <div class="flex items-center gap-3">
+                                    <span>💶</span>
+                                    <h2 class="text-xl font-semibold">Notaire</h2>
+                                </div>
+                                <span>${expandedSections.notaire ? '▲' : '▼'}</span>
+                            </div>
+                            ${expandedSections.notaire ? `
+                            <div class="p-6 grid grid-cols-2 gap-4">
+                                ${createInputField("Notaire", "notaire_nom", "text", true, null, "", true)}
+                                ${createInputField("Adresse", "notaire_adr", "text", false, null, "", true)}
+                                ${createInputField("Email", "notaire_email", "email", false, null, "", true)}
+                                ${createInputField("Tél", "notaire_tel", "tel", false, null, "", true)}
+                                ${createInputField("Prix de vente €", "prix", "number", true, null, "", true)}
+                                ${createInputField("Honor %", "honor_pct", "number")}
+                                ${createInputField("Honor €", "honor_val", "number")}
+                                ${createInputField("Net vendeur €", "prix_net", "number")}
+                            </div>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- AUTRES -->
+                        <div class="bg-white rounded-xl shadow-lg">
+                            <div class="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-lg cursor-pointer"
+                                 onclick="toggleSection('autres')">
+                                <div class="flex items-center gap-3">
+                                    <span>📄</span>
+                                    <h2 class="text-xl font-semibold">Autres Informations</h2>
+                                </div>
+                                <span>${expandedSections.autres ? '▲' : '▼'}</span>
+                            </div>
+                            ${expandedSections.autres ? `
+                            <div class="p-6 space-y-4">
+                                ${createInputField("Infos vendeurs", "autres_vendeurs", "textarea", false, null, "", true)}
+                                ${createInputField("Infos mandataire", "info_mandataire", "textarea")}
+                            </div>
+                            ` : ''}
+                        </div>
+
+                        <div class="flex gap-4 justify-end bg-white p-6 rounded-xl shadow-lg no-print">
+                            <button onclick="handleSubmit()" class="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-md">
+                                📤 Envoyer et Exporter CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            
+            root.innerHTML = html;
+        }
+
+        // Premier rendu
+        render();
+    </script>
+</body>
+</html>
